@@ -21,7 +21,7 @@ import matplotlib.pyplot as plt
 
 from sklearn.linear_model import Lasso
 
-# from spgl1 import spgl1
+from spgl1 import spgl1
 
 np.random.seed(12345)
 
@@ -46,13 +46,25 @@ def project_image_through_cfa(image, cfa):
     return np.sum(projection,axis=2)
 
 
-def generate_dct(N):
+def generate_dct_ortho(N):
     D = np.zeros((N, N))
     for k in range(N):
         for n in range(N):
             D[k,n] = np.cos((np.pi/N)*(n+0.5)*k)
     
     D[0,:] = (1/np.sqrt(2))*D[0,:]
+    D[:,:] = np.sqrt(2/N)*D[:,:]
+    
+    return D
+
+
+def generate_idct_ortho(N):
+    D = np.zeros((N, N))
+    for k in range(N):
+        for n in range(N):
+            D[k,n] = np.cos((np.pi/N)*n*(k+0.5))
+    
+    D[:,0] = (1/np.sqrt(2))*D[:,0]
     D[:,:] = np.sqrt(2/N)*D[:,:]
     
     return D
@@ -96,12 +108,16 @@ def pad_to_blocksize(image, channels, blocksize):
 
 
 filename_in = 'Afghan.jpg'
-image = sp.misc.imread(filename_in)
-
 image_channels = 3
 block_size = 16
 
-image = pad_to_blocksize(image, image_channels, block_size).astype(np.uint8)
+
+image_orig = sp.misc.imread(filename_in)
+
+image_orig_rows = image_orig.shape[0]
+image_orig_cols = image_orig.shape[1]
+
+image = pad_to_blocksize(image_orig, image_channels, block_size)
 
 image_rows = image.shape[0]
 image_cols = image.shape[1]
@@ -111,13 +127,22 @@ cfa = generate_cfa(image.shape,image_channels)
 y = project_image_through_cfa(image,cfa)
 
 image_recon = np.zeros((image_rows,image_cols,image_channels))
+y_recon = np.zeros((image_rows,image_cols))
 
 
-lasso = Lasso(alpha=0.01)
+# UNCOMMENT TO USE LASSO
+# lasso = Lasso(alpha=0.01)
 
 
-psi = generate_dct(block_size**2)
-bigpsi = sp.kron(psi,np.eye(image_channels))
+# OLD METHOD: 1D DCT
+#psi = generate_idct_ortho(block_size**2)
+
+# NEW METHOD: 2D DCT
+A = generate_idct_ortho(block_size)
+B = generate_dct_ortho(block_size)
+psi = sp.kron(B.T,A)
+
+bigpsi = sp.kron(np.eye(image_channels),psi)
 
 thetayuv = generate_yuvtorgb()
 thetaetf = generate_thetaetf()
@@ -163,40 +188,55 @@ for col in range(0,numofblocks_cols):
         P = np.dot(eta,bigtheta)
         Pprime = np.dot(bigpsi,bigtheta)
 
-        lasso.fit(P,y_blockvec.flatten())
-        x = lasso.coef_
-   
-        # x,resid,grad,info = spgl1.spg_bp(P,y_blockvec.flatten())
+        # UNCOMMENT TO USE LASSO
+        # lasso.fit(P,y_blockvec.flatten())
+        # x = lasso.coef_
+       
+        x,resid,grad,info = spgl1.spg_bp(P,y_blockvec.flatten())
+                
+        print('L0 Norm: ' + str(np.linalg.norm(x,ord=0)) + ' of ' + str(x.size))
+        print('Sparsity: ' + str(np.linalg.norm(x,ord=0)/x.size*100) + ' %')
         
         image_recon_block = np.dot(Pprime,x)
+        y_recon_block = np.dot(P,x)
         
         for channel in range(0,image_channels):
-            temp = image_recon_block[channel*block_size**2:(channel+1)*block_size**2]
-            temp = np.reshape(temp,(block_size,block_size),'F')
-            image_recon[row_beg:row_end,col_beg:col_end,channel] = temp
-        
+            temp1 = image_recon_block[channel*block_size**2:(channel+1)*block_size**2]
+            temp1 = np.reshape(temp1,(block_size,block_size),'F')
+            image_recon[row_beg:row_end,col_beg:col_end,channel] = temp1            
+            
+            temp2 = np.reshape(y_recon_block,(block_size,block_size),'F')
+            y_recon[row_beg:row_end,col_beg:col_end] = temp2            
 
-plt.imshow(image)
+
+image_final = image_recon[0:image_orig_rows,0:image_orig_cols]
+
+plt.imshow(image_orig.astype(np.uint8))
+plt.show()
+plt.imshow(image_final.astype(np.uint8))
 plt.show()
 plt.imshow(y,cmap='gray')
 plt.show()
-plt.imshow(image_recon)
+plt.imshow(y_recon,cmap='gray')
 plt.show()
 
-plt.hist(np.reshape(y,(-1,1)))
+plt.hist(image_orig.flatten())
+plt.show()
+plt.hist(image_final.flatten())
 plt.show()
 
-print(np.min(image_recon[:,:,1]))
-print(np.max(image_recon[:,:,1]))
+print('Error in y: ' + str(np.linalg.norm(y - y_recon)))
+print('Error in Image: ' + str(np.linalg.norm(image_orig - image_final)))
+
+print('Minimum: ' + str(np.min(image_final[:,:,1])))
+print('Maximum: ' + str(np.max(image_final[:,:,1])))
+
+image_reconmed = np.zeros(image_final.shape)
+for channel in range(0,image_channels):
+    image_reconmed[:,:,channel] = sp.signal.medfilt(image_final[:,:,channel])
+
+plt.imshow(image_reconmed.astype(np.uint8))
 
 
-image_recon = image_recon - np.min(image_recon)
-image_recon = image_recon * (1/np.max(image_recon))
-image_recon = image*255
-image_recon = 255 - image_recon
-
-print(np.min(image_recon))
-print(np.max(image_recon))
-
-plt.imshow(image_recon)
-plt.show()
+import winsound
+winsound.Beep(300,2000)
