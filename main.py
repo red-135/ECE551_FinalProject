@@ -13,7 +13,7 @@ Created on Wed Nov 23 23:15:22 2016
 # end = timer()
 # print(start-end)
 
-
+import math
 import numpy as np
 import scipy as sp
 import matplotlib as mpl
@@ -40,102 +40,145 @@ def generate_cfa(shape, channels=3):
     return np.reshape(diff_arr,(rows,cols,channels),'C')
 
 
-def project_image_onto_cfa(image, cfa):
+def project_image_through_cfa(image, cfa):
     projection = np.multiply(image, cfa)
     return np.sum(projection,axis=2)
 
 
 def generate_dct(N):
     D = np.zeros((N, N))
-    
     for k in range(N):
         for n in range(N):
             D[k,n] = np.cos((np.pi/N)*(n+0.5)*k)
     
-    D[0,:] = D[0,:]*(1/np.sqrt(2))
-    D = D*np.sqrt(2/N)
+    D[0,:] = (1/np.sqrt(2))*D[0,:]
+    D[:,:] = np.sqrt(2/N)*D[:,:]
     
     return D
 
 
 def generate_thetaetf():
     l = (1+np.sqrt(5))/2
-    thetaetf = 1/np.sqrt(1+l**2)*np.array([[0,0,1,1,l,-l],[1,1,l,-l,0,0],[l,-l,0,0,1,1]])
+    thetaetf = (1/np.sqrt(1+l**2))*np.array([[0,0,1,1,l,-l], [1,1,l,-l,0,0], [l,-l,0,0,1,1]])
     return thetaetf
 
 
-def generate_thetayuv():
-    thetayuv = np.array([[0.299,0.587,0.114],[-0.147,-0.289,0.436],[0.615,-0.515,-0.100]])
+def generate_rgbtoyuv():
+    thetargb = np.array([[0.299,0.587,0.114],[-0.147,-0.289,0.436],[0.615,-0.515,-0.100]])
+    return thetargb
+
+
+def generate_yuvtorgb():
+    thetayuv = np.array([[1.000,0.000,1.140],[1.000,-0.395,-0.581],[1.000,2.032,0.000]])
     return thetayuv
+
+def normalize(A):
+    return 1/255*A
+
+def denormalize(A):
+    return 255*A
     
 
 filename_in = 'Afghan.jpg'
-channels_in = 3
+image = sp.misc.imread(filename_in)
+
+image_channels = 3
+image_rows = image.shape[0]
+image_cols = image.shape[1]
+image_size = image_rows*image_cols
+
+cfa = generate_cfa(image.shape,image_channels)
+y = project_image_through_cfa(image,cfa)
+
+image_recon = np.zeros((image_rows,image_cols,image_channels))
+
 
 block_size = 16
 
-D = generate_dct(block_size*block_size)
-psi = sp.linalg.block_diag(D,D,D)
 
-theta = np.concatenate((generate_thetayuv(),generate_thetaetf()),axis=1)
-bigtheta = np.kron(theta,np.eye(block_size*block_size))
+lasso = Lasso(alpha=0.01)
 
-image = sp.misc.imread(filename_in)
-cfa = generate_cfa(image.shape)
 
-image_rows = image.shape[0]
-image_cols = image.shape[1]
+psi = generate_dct(block_size**2)
+bigpsi = sp.kron(psi,np.eye(image_channels))
 
-image_mono = project_image_onto_cfa(image,cfa)
-plt.imshow(image_mono,cmap='gray')
+thetayuv = generate_yuvtorgb()
+thetaetf = generate_thetaetf()
+theta = np.hstack((thetayuv,thetaetf))
+bigtheta = np.kron(theta,np.eye(block_size**2))
 
-image_recon = np.zeros(image.shape)
 
-for i in range(0,int(image_cols/block_size)):
-    for j in range(0,int(image_rows/block_size)):
-        print('Cycle ' + str(j+i*int(image_rows/block_size)) + ' of ' + str(int(image_cols/block_size)*int(image_rows/block_size)-1))
+numofblocks_cols = math.floor(image_cols/block_size)
+numofblocks_rows = math.floor(image_rows/block_size)
+
+
+for col in range(0,numofblocks_cols):
+    for row in range(0,numofblocks_rows):
         
-        row_beg = j*block_size
-        row_end = (j+1)*block_size
-        col_beg = i*block_size
-        col_end = (i+1)*block_size
+        cycle_curr = row + col*numofblocks_rows
+        cycle_total = numofblocks_cols*numofblocks_rows-1
         
-        image_mono_block = image_mono[row_beg:row_end,col_beg:col_end]
+        print('Cycle ' + str(cycle_curr) + ' of ' + str(cycle_total))
+        
+        if col != numofblocks_cols-1:
+            col_beg = col*block_size
+            col_end = (col+1)*block_size
+        else:
+            col_beg = col*block_size
+            col_end = image_cols
+        
+        if row != numofblocks_rows-1:
+            row_beg = row*block_size
+            row_end = (row+1)*block_size
+        else:
+            row_beg = row*block_size
+            row_end = image_rows
+        
+        block_cols = col_end - col_beg + 1
+        block_rows = row_end - row_beg + 1
+        
+        y_block = y[row_beg:row_end,col_beg:col_end]
+        y_blockvec = np.reshape(y_block,(-1,1),'F')
+        
         cfa_block = cfa[row_beg:row_end,col_beg:col_end]
+        cfa_blockdiag = list()
         
-        image_mono_blockv = np.reshape(image_mono_block,(-1,1),'F')
+        for channel in range(0,image_channels):
+            temp = cfa_block[:,:,channel]            
+            temp = np.reshape(temp,(-1,1),'F')                                   
+            cfa_blockdiag.append(np.diagflat(temp))
         
-        cp_block = list()
-        cp_blockv = list()
-        cp_blockd = list()
-        for k in range(0,channels_in):
-            cp_block.append(cfa_block[:,:,k])
-            cp_blockv.append(np.reshape(cp_block[k],(-1,1),'F'))
-            cp_blockd.append(np.diagflat(cp_blockv[k]))
+        phi_tuple = tuple(element for element in cfa_blockdiag)
+        phi = np.hstack(phi_tuple)
         
-        phi_tuple = tuple(phi_element for phi_element in cp_blockd)
-        phi = np.concatenate(phi_tuple,axis=1)
-        
-        eta = np.dot(phi,psi)
+        eta = np.dot(phi,bigpsi)
         P = np.dot(eta,bigtheta)
+        Pprime = np.dot(bigpsi,bigtheta)
 
-        lasso = Lasso(alpha=0.01)
-        lasso.fit(P,image_mono_blockv)
+        lasso.fit(P,y_blockvec)
+        x = lasso.coef_
         
-        recon = np.dot(np.dot(psi,bigtheta),lasso.coef_);
+        image_recon_block = np.dot(Pprime,x)
         
-        reconv = list()
-        reconvrs = list()
-        for k in range(0,channels_in):
-            reconv.append(recon[k*block_size**2:(k+1)*block_size**2])
-            reconv[k] = np.reshape(reconv[k],(block_size,block_size),'F')
-            image_recon[row_beg:row_end,col_beg:col_end,k] = reconv[k]
+        for channel in range(0,image_channels):
+            temp = image_recon_block[channel*block_size**2:(channel+1)*block_size**2]
+            temp = np.reshape(temp,(block_size,block_size),'F')
+            image_recon[row_beg:row_end,col_beg:col_end,channel] = temp
         
-        
+
 plt.imshow(image)
+plt.show()
+plt.imshow(y,cmap='gray')
 plt.show()
 plt.imshow(image_recon)
 plt.show()
+
+plt.hist(np.reshape(y,(-1,1)))
+plt.show()
+
+print(np.min(image_recon[:,:,1]))
+print(np.max(image_recon[:,:,1]))
+
 
 image_recon = image_recon - np.min(image_recon)
 image_recon = image_recon * (1/np.max(image_recon))
