@@ -21,6 +21,7 @@ import matplotlib.pyplot as plt
 
 from sklearn.linear_model import Lasso
 
+# from spgl1 import spgl1
 
 np.random.seed(12345)
 
@@ -72,17 +73,36 @@ def generate_yuvtorgb():
     thetayuv = np.array([[1.000,0.000,1.140],[1.000,-0.395,-0.581],[1.000,2.032,0.000]])
     return thetayuv
 
+
 def normalize(A):
     return 1/255*A
 
+
 def denormalize(A):
     return 255*A
+
+
+def pad_to_blocksize(image, channels, blocksize):
+    rows = image.shape[0]
+    cols = image.shape[1]
     
+    rows_extended = math.ceil(rows/blocksize)*blocksize
+    cols_extended = math.ceil(cols/blocksize)*blocksize
+    
+    image_new = np.zeros((rows_extended,cols_extended,channels),dtype=np.uint8)
+    image_new[0:rows,0:cols,:] = image
+    
+    return image_new
+
 
 filename_in = 'Afghan.jpg'
 image = sp.misc.imread(filename_in)
 
 image_channels = 3
+block_size = 16
+
+image = pad_to_blocksize(image, image_channels, block_size).astype(np.uint8)
+
 image_rows = image.shape[0]
 image_cols = image.shape[1]
 image_size = image_rows*image_cols
@@ -91,9 +111,6 @@ cfa = generate_cfa(image.shape,image_channels)
 y = project_image_through_cfa(image,cfa)
 
 image_recon = np.zeros((image_rows,image_cols,image_channels))
-
-
-block_size = 16
 
 
 lasso = Lasso(alpha=0.01)
@@ -120,19 +137,10 @@ for col in range(0,numofblocks_cols):
         
         print('Cycle ' + str(cycle_curr) + ' of ' + str(cycle_total))
         
-        if col != numofblocks_cols-1:
-            col_beg = col*block_size
-            col_end = (col+1)*block_size
-        else:
-            col_beg = col*block_size
-            col_end = image_cols
-        
-        if row != numofblocks_rows-1:
-            row_beg = row*block_size
-            row_end = (row+1)*block_size
-        else:
-            row_beg = row*block_size
-            row_end = image_rows
+        col_beg = col*block_size
+        col_end = (col+1)*block_size
+        row_beg = row*block_size
+        row_end = (row+1)*block_size
         
         block_cols = col_end - col_beg + 1
         block_rows = row_end - row_beg + 1
@@ -155,8 +163,10 @@ for col in range(0,numofblocks_cols):
         P = np.dot(eta,bigtheta)
         Pprime = np.dot(bigpsi,bigtheta)
 
-        lasso.fit(P,y_blockvec)
+        lasso.fit(P,y_blockvec.flatten())
         x = lasso.coef_
+   
+        # x,resid,grad,info = spgl1.spg_bp(P,y_blockvec.flatten())
         
         image_recon_block = np.dot(Pprime,x)
         
