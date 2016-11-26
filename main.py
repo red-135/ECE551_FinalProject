@@ -206,10 +206,12 @@ for col in range(0,numofblocks_cols):
             image_recon[row_beg:row_end,col_beg:col_end,channel] = temp1            
             
             temp2 = np.reshape(y_recon_block,(block_size,block_size),'F')
-            y_recon[row_beg:row_end,col_beg:col_end] = temp2            
-
-
+            y_recon[row_beg:row_end,col_beg:col_end] = temp2
+        
+        
 image_final = image_recon[0:image_orig_rows,0:image_orig_cols]
+image_final[image_final<0] = 0
+image_final[image_final>255] = 255
 
 plt.imshow(image_orig.astype(np.uint8))
 plt.show()
@@ -220,9 +222,9 @@ plt.show()
 plt.imshow(y_recon,cmap='gray')
 plt.show()
 
-plt.hist(image_orig.flatten())
+plt.hist(image_orig.flatten(),255)
 plt.show()
-plt.hist(image_final.flatten())
+plt.hist(image_final.flatten(),255)
 plt.show()
 
 print('Error in y: ' + str(np.linalg.norm(y - y_recon)))
@@ -230,6 +232,8 @@ print('Error in Image: ' + str(np.linalg.norm(image_orig - image_final)))
 
 print('Minimum: ' + str(np.min(image_final[:,:,1])))
 print('Maximum: ' + str(np.max(image_final[:,:,1])))
+
+plt.imshow(np.sum(np.fabs(image_final-image_orig),axis=2).astype(np.uint8),cmap='gray')
 
 image_reconmed = np.zeros(image_final.shape)
 for channel in range(0,image_channels):
