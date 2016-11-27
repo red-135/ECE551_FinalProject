@@ -19,6 +19,8 @@ import scipy as sp
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 
+from scipy import signal
+
 from sklearn.linear_model import Lasso
 
 from spgl1 import spgl1
@@ -252,6 +254,8 @@ for offset in [0,4,8,12]:
         image_recon_final[:,:,channel] = np.nanmedian(np.dstack((image_recon_final[:,:,channel],image_temp[:,:,channel])),axis=2)
         y_recon_final[:,:] = np.nanmedian(np.dstack((y_recon_final[:,:],y_temp)),axis=2)
     
+    image_temp[image_temp<0] = 0
+    image_temp[image_temp>255] = 255
     plt.imshow(image_temp.astype(np.uint8))
     plt.show()
     plt.imshow(y_temp,cmap='gray')
