@@ -18,12 +18,16 @@ import numpy as np
 import scipy as sp
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+import skimage.measure as skm
 
+from scipy import misc
 from scipy import signal
 
-from sklearn.linear_model import Lasso
-
+# LIBRARY INCLUDES FOR DIFFERENT IMPLEMENTATIONS
+# from sklearn.linear_model import Lasso
 from spgl1 import spgl1
+# import cvxpy as cvx
+# import cvxopt
 
 np.random.seed(12345)
 
@@ -231,8 +235,31 @@ for offset in [0,4,8,12]:
             # lasso.fit(P,y_blockvec.flatten())
             # x = lasso.coef_
            
+            # UNCOMMENT TO USE SPGL1
             x,resid,grad,info = spgl1.spg_bp(P,y_blockvec.flatten())
-                    
+            
+            # UNCOMMENT TO USE CVXPY
+            # vx = cvx.Variable(9*block_size**2)
+            # objective = cvx.Minimize(cvx.norm(vx, 1))
+            # constraints = [P*vx == y_blockvec.flatten()]
+            # prob = cvx.Problem(objective, constraints)
+            # result = prob.solve(verbose=True)
+            # x = np.array(vx.value)
+            # x = np.squeeze(x)
+            
+            # UNCOMMENT TO USE CVXOPT
+            # x = cvxopt.matrix(y_blockvec.copy())
+            # A = cvxopt.matrix(P.copy())
+            # m,n = A.size
+            # x = cvxopt.matrix([x,cvxopt.matrix(0.0,(n-m,1))])
+            # cvxopt.lapack.gels(A, x, trans='N')
+            # x = np.array(x).flatten()
+            
+            
+            plt.plot(x)
+            plt.show()
+            
+            
             print('L0 Norm: ' + str(np.linalg.norm(x,ord=0)) + ' of ' + str(x.size))
             print('Sparsity: ' + str(np.linalg.norm(x,ord=0)/x.size*100) + ' %')
             
@@ -256,10 +283,12 @@ for offset in [0,4,8,12]:
     
     image_temp[image_temp<0] = 0
     image_temp[image_temp>255] = 255
-    plt.imshow(image_temp.astype(np.uint8))
-    plt.show()
-    plt.imshow(y_temp,cmap='gray')
-    plt.show()
+    
+    # UNCOMMENT TO SHOW INTERMEDIARY IMAGES
+    # plt.imshow(image_temp.astype(np.uint8))
+    # plt.show()
+    # plt.imshow(y_temp,cmap='gray')
+    # plt.show()
 
 
 image_final = image_recon_final[0:image_orig_rows,0:image_orig_cols]
@@ -291,12 +320,17 @@ print('Maximum: ' + str(np.max(image_final[:,:,1])))
 plt.imshow(np.sum(np.fabs(image_final-image_orig),axis=2).astype(np.uint8),cmap='gray')
 plt.show()
 
-image_reconmed = np.zeros(image_final.shape)
-for channel in range(0,image_channels):
-    image_reconmed[:,:,channel] = sp.signal.medfilt(image_final[:,:,channel])
+# UNCOMMENT TO SHOW MEDIAN FILTERED IMAGE
+# image_reconmed = np.zeros(image_final.shape)
+# for channel in range(0,image_channels):
+#     image_reconmed[:,:,channel] = sp.signal.medfilt(image_final[:,:,channel])
+# 
+# plt.imshow(image_reconmed.astype(np.uint8))
+# plt.show()
 
-plt.imshow(image_reconmed.astype(np.uint8))
-plt.show()
+print('MSE: ' + str(skm.compare_mse(image_orig.astype(np.uint8), image_final.astype(np.uint8))))
+print('PSNR: ' + str(skm.compare_psnr(image_orig.astype(np.uint8), image_final.astype(np.uint8))))
+print('SSIM: ' + str(skm.compare_ssim(image_orig.astype(np.uint8), image_final.astype(np.uint8), multichannel=True)))
 
 
 import winsound
